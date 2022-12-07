@@ -1,7 +1,15 @@
 #include <SoftwareSerial.h>
 
+#define MONITOR
+
 #define rxPin 10
 #define txPin 8
+#define In1 2 //Pin D2 dell'Arduino e' collegato al Input 1 del ponte H
+#define In2 4 //Pin D4 dell'Arduino e' collegato al Input 2 del ponte H
+#define In3 6 //Pin D6 dell'Arduino e' collegato al Input 3 del ponte H
+#define In4 7 //Pin D7 dell'Arduino e' collegato al Input 4 del ponte H
+#define EnM1 5 //M1 motore di sinistra
+#define EnM2 9 //M2 motore destro
 // Set up a new SoftwareSerial object
 SoftwareSerial mySerial =  SoftwareSerial(rxPin, txPin);
 
@@ -12,25 +20,42 @@ String check4answer(){
       char c = mySerial.read();
       str += String(c);
     }
+    #ifdef MONITOR
     Serial.println(str);
+    #endif
     return str;
 }
 
 
 String esp01cmd(String cmd) {
+    #ifdef MONITOR
   Serial.println("sending: " + cmd);
+    #endif
   mySerial.println(cmd);
   delay(10);
   return check4answer();
 }
 
+String cellphoneIP = "";
+String str = "";
+
 void setup()  {
     // Define pin modes for TX and RX
     pinMode(rxPin, INPUT);
     pinMode(txPin, OUTPUT);
+    pinMode(In1, OUTPUT);
+    pinMode(In2, OUTPUT);
+    pinMode(In3, OUTPUT);
+    pinMode(In4, OUTPUT);
+    pinMode(EnM1, OUTPUT);
+    pinMode(EnM2, OUTPUT);
+    digitalWrite(EnM1, HIGH);
+    digitalWrite(EnM2, HIGH);
     
     // Set the baud rate for the SoftwareSerial object
+    #ifdef MONITOR
     Serial.begin(9600);
+    #endif
 
 // nel caso in cui ESP01 sia settato alla velocità di trasmissione 11500
 // che per la softserial risulta troppo veloce, possiamo andare a settare
@@ -55,12 +80,65 @@ void setup()  {
     esp01cmd("AT+CIPMUX=1"); //allow up to 1 connections at the time
     
     
+    #ifdef MONITOR
     Serial.println("ESP-01 Configuration Completed");
+    #endif
+    avanti(1000);
+
+    while(str.substring(11,18) != "192.168") {
+    #ifdef MONITOR
+      Serial.println("no connections so far... still waiting");
+    #endif
+      delay(1000);
+      str = esp01cmd("AT+CWLIF");
+    }
+    int startOfSTR = str.indexOf(',',18);  //IP finsce prima della virgola
+    cellphoneIP = str.substring(11,startOfSTR);
+    printlnWIFI("collegato a: " + cellphoneIP, cellphoneIP);
+}
+
+void avanti(int durata){
+    digitalWrite(In1, LOW); //M1 avanti
+    digitalWrite(In2, HIGH);
+    digitalWrite(In3, LOW); //M2 avanti
+    digitalWrite(In4, HIGH);
+    delay(durata);
+    digitalWrite(In4, LOW); //stop
+    digitalWrite(In2, LOW);
+}
+void indietro(int durata){
+    digitalWrite(In1, HIGH); //M1 indietro
+    digitalWrite(In2, LOW);
+    digitalWrite(In3, HIGH); //M2 indietro
+    digitalWrite(In4, LOW);
+    delay(durata);
+    digitalWrite(In3, LOW); //stop
+    digitalWrite(In1, LOW);
+}
+void destra(int durata){
+    digitalWrite(In1, HIGH); //M1 indietro
+    digitalWrite(In2, LOW);
+    digitalWrite(In3, LOW); //M2 avanti
+    digitalWrite(In4, HIGH);
+    delay(durata);
+    digitalWrite(In4, LOW); //stop
+    digitalWrite(In1, LOW);
+}
+void sinistra(int durata){
+    digitalWrite(In1, LOW); //M1 avanti
+    digitalWrite(In2, HIGH);
+    digitalWrite(In3, HIGH); //M2 indietro
+    digitalWrite(In4, LOW);
+    delay(durata);
+    digitalWrite(In3, LOW); //stop
+    digitalWrite(In2, LOW);
 }
 
 void printlnWIFI(String str, String cellIP) {
       if(str != "") {
-        Serial.println("Received from Serial Monitor: "+str);
+    #ifdef MONITOR
+        Serial.println("Received from UDP Monitor: "+str);
+    #endif
         //String str1 = "AT+CIPSEND=1," + str.length(); NOT WORKING??? bug???
         String str1 = "AT+CIPSEND=3,";
         str1 = str1 + str.length() + ",\"" + cellIP + "\",1234";
@@ -72,17 +150,14 @@ void printlnWIFI(String str, String cellIP) {
 }
 
 void loop() {
+    #ifdef MONITOR
     Serial.println("loop...");
-    while(esp01cmd("AT+CWLIF").substring(11,18) != "192.168") {
-      Serial.println("no connections so far... still waiting");
-      delay(1000);
-    }
+    #endif
 
-    String str = esp01cmd("AT+CWLIF");
-    int startOfSTR = str.indexOf(',',18);  //IP finsce prima della virgola
-    String cellphoneIP = str.substring(11,startOfSTR);
+    #ifdef MONITOR
     Serial.println(cellphoneIP);
     Serial.println("Connection from remote device was Established!!!");
+    #endif
 
     // AT+CIPSTART=<id>,<type>,<remote address>,<remote port>[,(<local port>),(<mode>)]
     // AT+CIPSEND=[<id>,]<length>[,<ip>,<port>]
@@ -108,21 +183,36 @@ void loop() {
       if(str != "") {
 
         int startOfSTR = str.indexOf(":",10)+1;
+        printlnWIFI("Ricevuto: " + str, cellphoneIP);
+    #ifdef MONITOR
         Serial.println("Received: "+str);
         Serial.println("Message: "+str.substring(startOfSTR));
+    #endif
         str = str.substring(startOfSTR);
           
         char cmd = str[0];
         int durata = str.substring(1).toInt();
   
+    #ifdef MONITOR
         Serial.println(cmd);
+    #endif
   
         switch (cmd){
         case 'a': 
             printlnWIFI("Avanti di " + String(durata), cellphoneIP);
+            avanti(durata);
             break;
         case 'i': 
             printlnWIFI("Indietro di " + String(durata), cellphoneIP);
+            indietro(durata);
+            break;
+        case 'd': 
+            printlnWIFI("destra di " + String(durata), cellphoneIP);
+            destra(durata);
+            break;
+        case 's': 
+            printlnWIFI("sinistra di " + String(durata), cellphoneIP);
+            sinistra(durata);
             break;
         default:
             printlnWIFI("Comando non esistente: ", cellphoneIP);
@@ -131,8 +221,10 @@ void loop() {
           
       }
 
+    #ifdef MONITOR
       // dati ricevuti da Monitor Seriale
       str = Serial.readString(); 
       printlnWIFI(str, cellphoneIP);
-    }
+    #endif
+}
 }
